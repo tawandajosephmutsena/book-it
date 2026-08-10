@@ -246,7 +246,7 @@ new class extends Component
 };
 ?>
 
-<div class="w-full max-w-4xl mx-auto relative z-20 text-white bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-[2rem] p-6 md:p-10 overflow-hidden" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); font-family: 'Plus Jakarta Sans', sans-serif;">
+<div class="w-full max-w-5xl mx-auto relative z-20 text-white bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-[2rem] p-6 md:p-10 overflow-hidden" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); font-family: 'Plus Jakarta Sans', sans-serif;">
     <!-- Ambient Glows -->
     <div class="absolute -top-40 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none"></div>
     <div class="absolute -bottom-40 -left-40 w-96 h-96 bg-green-500/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -325,7 +325,7 @@ new class extends Component
                     <!-- Left: Calendar -->
                     <div class="space-y-6">
                         <div class="flex items-center justify-between px-2">
-                            <h3 class="text-xl md:text-2xl font-semibold text-white tracking-wide" style="font-family: 'Clash Display', sans-serif;">
+                            <h3 class="text-lg md:text-xl font-semibold text-white tracking-wide" style="font-family: 'Clash Display', sans-serif;">
                                 {{ Carbon::create($currentYear, $currentMonth, 1)->format('F Y') }}
                             </h3>
                             <div class="flex items-center space-x-1 bg-zinc-800/30 p-1 rounded-full border border-white/5">
@@ -338,7 +338,7 @@ new class extends Component
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-7 gap-y-4 gap-x-2 text-center text-xs font-bold text-white/40 tracking-widest uppercase" style="font-family: 'Clash Display', sans-serif;">
+                        <div class="grid grid-cols-7 gap-y-4 gap-x-2 text-center text-[10px] font-bold text-white/40 tracking-widest uppercase" style="font-family: 'Clash Display', sans-serif;">
                             <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
                         </div>
 
@@ -356,7 +356,7 @@ new class extends Component
                                         wire:click="selectDate('{{ $dayInfo['dateStr'] }}')"
                                         @disabled($isDisabled)
                                         @class([
-                                            'aspect-square w-full rounded-full flex flex-col items-center justify-center text-sm font-medium transition-all duration-300 relative focus:outline-none',
+                                            'aspect-square w-full rounded-full flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 relative focus:outline-none',
                                             'bg-white text-zinc-900 shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110 z-10' => $isSelected,
                                             'text-white/20 pointer-events-none' => $isDisabled,
                                             'text-white/80 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/10 hover:scale-105' => !$isSelected && !$isDisabled,
@@ -398,7 +398,9 @@ new class extends Component
                                     @endphp
                                     <button 
                                         type="button"
+                                        @if($slotAvailable)
                                         wire:click="$set('time', '{{ $slotTime }}')"
+                                        @endif
                                         @disabled(!$slotAvailable)
                                         @class([
                                             'w-full py-4 px-4 text-sm font-medium rounded-2xl border transition-all duration-300 flex items-center justify-between focus:outline-none group',

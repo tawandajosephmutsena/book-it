@@ -12,6 +12,7 @@
         "infer-conventions",
         "fortify-development",
         "laravel-best-practices",
+        "socialite-development",
         "fluxui-development",
         "livewire-development",
         "pest-testing",

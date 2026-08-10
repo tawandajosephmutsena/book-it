@@ -26,7 +26,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Membership> $memberships
  * @property-read Collection<int, User> $members
  */
-#[Fillable(['name', 'slug', 'is_personal'])]
+#[Fillable(['name', 'slug', 'is_personal', 'global_minimum_notice', 'page_views'])]
 class Team extends Model
 {
     /** @use HasFactory<TeamFactory> */
@@ -113,5 +113,35 @@ class Team extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    /**
+     * Get the availabilities for the team.
+     *
+     * @return HasMany<Availability, $this>
+     */
+    public function availabilities(): HasMany
+    {
+        return $this->hasMany(Availability::class);
+    }
+
+    /**
+     * Get the bookings for the team.
+     *
+     * @return HasMany<Booking, $this>
+     */
+    public function bookings(): HasMany
+    {
+        return $this->hasMany(Booking::class);
+    }
+
+    /**
+     * Get the event types for the team.
+     *
+     * @return HasMany<EventType, $this>
+     */
+    public function eventTypes(): HasMany
+    {
+        return $this->hasMany(EventType::class);
     }
 }
