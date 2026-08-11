@@ -129,12 +129,16 @@ new class extends Component
             $allTimes = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
         }
 
-        // Get already-booked time slots for this date
+        // Get already-booked time slots for this date — convert UTC → guest timezone for comparison
         $bookedTimes = Booking::where('team_id', $this->team->id)
-            ->whereDate('start_time', $dateStr)
             ->where('status', 'confirmed')
             ->get()
-            ->map(fn ($booking) => Carbon::parse($booking->start_time)->format('H:i'))
+            ->filter(function ($booking) use ($dateStr) {
+                // Compare in guest's timezone, not UTC — a booking at 09:00 UTC is 11:00 in Harare
+                $localTime = Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone ?? 'Africa/Harare');
+                return $localTime->format('Y-m-d') === $dateStr;
+            })
+            ->map(fn ($booking) => Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone ?? 'Africa/Harare')->format('H:i'))
             ->toArray();
 
         // Build structured slots with availability flag for gray-out UX
@@ -246,7 +250,7 @@ new class extends Component
 };
 ?>
 
-<div class="w-full max-w-5xl mx-auto relative z-20 text-white bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-[2rem] p-6 md:p-10 overflow-hidden" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); font-family: 'Plus Jakarta Sans', sans-serif;">
+<div class="w-full max-w-6xl mx-auto relative z-20 text-white bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-[2rem] p-5 md:p-8 overflow-hidden" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); font-family: 'Plus Jakarta Sans', sans-serif;">
     <!-- Ambient Glows -->
     <div class="absolute -top-40 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none"></div>
     <div class="absolute -bottom-40 -left-40 w-96 h-96 bg-green-500/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -435,7 +439,7 @@ new class extends Component
                     </div>
                 </div>
 
-                <div class="mt-8 flex justify-end border-t border-white/5 pt-8">
+                <div class="mt-8 flex justify-end border-t border-white/5 pt-8 pb-4">
                     <button type="button" wire:click="nextStep" class="magnetic bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-bold py-3.5 px-8 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] flex items-center space-x-2" @disabled(!$date || !$time)>
                         <span>Continue</span>
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
