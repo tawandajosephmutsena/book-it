@@ -11,6 +11,16 @@ Route::get('/register', function () {
 })->name('register');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/dashboard', function () {
+        $user = auth()->user();
+        $team = $user->currentTeam ?? $user->personalTeam() ?? $user->allTeams()->first();
+        if (! $team) {
+            abort(403, 'No team assigned.');
+        }
+
+        return redirect("/{$team->slug}/dashboard");
+    });
+
     Route::get('/auth/google', [GoogleController::class, 'redirectToGoogle'])->name('google.connect');
     Route::get('/auth/google/callback', [GoogleController::class, 'handleGoogleCallback']);
 });

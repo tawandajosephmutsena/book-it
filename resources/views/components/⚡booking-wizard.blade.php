@@ -12,61 +12,72 @@ use Livewire\Component;
 new class extends Component
 {
     public Team $team;
-
     public $step = 1;
 
+    // Step 1: Scheduling
     public $date;
-
     public $time;
+    public $guest_timezone = 'UTC';
+    public $currentYear;
+    public $currentMonth;
+    public $calendarDays = [];
+    public $availableTimes = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
+    public $timezones = [
+        'UTC' => 'UTC (Coordinated Universal Time)',
+        'Africa/Harare' => 'Harare, Johannesburg (CAT / GMT+2)',
+        'Africa/Lagos' => 'Lagos, London (WAT / GMT+1)',
+        'Europe/London' => 'London, Dublin (GMT/BST)',
+        'Europe/Paris' => 'Paris, Berlin, Rome (CET / GMT+1)',
+        'America/New_York' => 'New York, Eastern (EDT / GMT-4)',
+        'America/Chicago' => 'Chicago, Central (CDT / GMT-5)',
+        'America/Denver' => 'Denver, Mountain (MDT / GMT-6)',
+        'America/Los_Angeles' => 'Los Angeles, Pacific (PDT / GMT-7)',
+        'Asia/Dubai' => 'Dubai, UAE (GST / GMT+4)',
+        'Asia/Singapore' => 'Singapore, Hong Kong (SGT / GMT+8)',
+        'Australia/Sydney' => 'Sydney, Melbourne (AEST / GMT+10)',
+    ];
 
-    public $guest_name;
-
-    public $guest_email;
-
+    // Step 2: Intake Details
+    public $guest_name = '';
+    public $guest_email = '';
     public $guest_phone = '';
-
     public $guest_company = '';
-
     public $guest_industry = '';
-
     public $project_brief = '';
 
-    public $guest_timezone;
-
-    public $lead_data = [];
-
+    // Step 3: Confirmation
+    public $confirmedBooking = null;
     public $calendarLinks = [];
-
-    // Calendar state
-    public $currentYear;
-
-    public $currentMonth;
-
-    public $calendarDays = [];
-
-    public $availableTimes = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
 
     public function mount(Team $team)
     {
         $this->team = $team;
         $this->currentYear = Carbon::now()->year;
         $this->currentMonth = Carbon::now()->month;
-        $this->guest_timezone = 'UTC';
         $this->calculateCalendarDays();
+    }
+
+    public function updatedGuestTimezone()
+    {
+        if ($this->date) {
+            $this->selectDate($this->date);
+        }
     }
 
     public function calculateCalendarDays()
     {
         $startOfMonth = Carbon::create($this->currentYear, $this->currentMonth, 1);
         $daysInMonth = $startOfMonth->daysInMonth;
-        $startDayOfWeek = $startOfMonth->dayOfWeek;
+        $startDayOfWeek = $startOfMonth->dayOfWeek; // 0 = Sunday, 1 = Monday...
 
         $days = [];
 
+        // Fill leading blank days
         for ($i = 0; $i < $startDayOfWeek; $i++) {
             $days[] = null;
         }
 
+        // Fill days of the month
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $date = Carbon::create($this->currentYear, $this->currentMonth, $day);
             $days[] = [
@@ -103,6 +114,7 @@ new class extends Component
     public function selectDate($dateStr)
     {
         $this->date = $dateStr;
+        $this->time = null;
         $dayOfWeek = Carbon::parse($dateStr)->format('l');
 
         $availabilities = Availability::where('team_id', $this->team->id)
@@ -120,74 +132,90 @@ new class extends Component
                         $slots[] = $start->format('H:i');
                         $start->addHour();
                     }
-                } catch (Exception $e) {
-                    Log::warning('Failed to parse availability time for team '.$this->team->id.': '.$e->getMessage());
+                } catch (\Exception $e) {
+                    Log::warning('Failed to parse availability time: '.$e->getMessage());
                 }
             }
             $allTimes = array_values(array_unique($slots));
         } else {
+            // Default business hours
             $allTimes = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
         }
 
-        // Get already-booked time slots for this date — convert UTC → guest timezone for comparison
+        // Get booked slots for this date in UTC converted to guest timezone
+        $targetDateCarbon = Carbon::parse($dateStr);
         $bookedTimes = Booking::where('team_id', $this->team->id)
             ->where('status', 'confirmed')
             ->get()
             ->filter(function ($booking) use ($dateStr) {
-                // Compare in guest's timezone, not UTC — a booking at 09:00 UTC is 11:00 in Harare
-                $localTime = Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone ?? 'Africa/Harare');
+                $localTime = Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone);
                 return $localTime->format('Y-m-d') === $dateStr;
             })
-            ->map(fn ($booking) => Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone ?? 'Africa/Harare')->format('H:i'))
+            ->map(function ($booking) {
+                return Carbon::parse($booking->start_time)->setTimezone($this->guest_timezone)->format('H:i');
+            })
             ->toArray();
 
-        // Build structured slots with availability flag for gray-out UX
         $this->availableTimes = array_map(fn ($time) => [
-            'time' => $time,
-            'available' => ! in_array($time, $bookedTimes),
+            'time' => substr($time, 0, 5),
+            'formatted' => Carbon::parse($time)->format('g:i A'),
+            'available' => ! in_array(substr($time, 0, 5), $bookedTimes),
         ], $allTimes);
+    }
+
+    public function selectTime($timeStr)
+    {
+        $this->time = $timeStr;
+    }
+
+    public function goToStep2()
+    {
+        $this->validate([
+            'date' => 'required|date',
+            'time' => 'required|string',
+            'guest_timezone' => 'required|string',
+        ]);
+        $this->step = 2;
     }
 
     public function nextStep()
     {
-        $this->validateStep();
-        $this->step++;
+        $this->goToStep2();
+    }
+
+    public function goToStep1()
+    {
+        $this->step = 1;
     }
 
     public function prevStep()
     {
-        $this->step--;
-    }
-
-    public function validateStep()
-    {
-        if ($this->step === 1) {
-            $this->validate([
-                'date' => 'required',
-                'time' => 'required',
-            ]);
-        } elseif ($this->step === 2) {
-            $this->validate([
-                'guest_name' => 'required|string|max:255',
-                'guest_email' => 'required|email|max:255',
-                'guest_phone' => 'nullable|string|max:20',
-                'guest_company' => 'nullable|string|max:255',
-                'guest_industry' => 'nullable|string|max:255',
-                'project_brief' => 'nullable|string|max:1000',
-            ]);
-        }
+        $this->goToStep1();
     }
 
     public function submit()
     {
-        $this->validateStep();
+        $this->validate([
+            'guest_name' => 'required|string|max:255',
+            'guest_email' => 'required|email|max:255',
+            'guest_phone' => 'nullable|string|max:25',
+            'guest_company' => 'nullable|string|max:255',
+            'guest_industry' => 'nullable|string|max:255',
+            'project_brief' => 'nullable|string|max:1500',
+        ]);
 
         $startTime = Carbon::parse($this->date.' '.$this->time, $this->guest_timezone)->setTimezone('UTC');
+        $datePrefix = $startTime->format('Y-m-d');
+        $timePrefix = $startTime->format('H:i');
 
-        // Atomic double-booking prevention with row-level locking
-        $conflict = DB::transaction(function () use ($startTime) {
+        // Atomic double-booking lock
+        $conflict = DB::transaction(function () use ($startTime, $datePrefix, $timePrefix) {
             $existingCount = Booking::where('team_id', $this->team->id)
-                ->where('start_time', $startTime)
+                ->where(function ($q) use ($startTime, $datePrefix, $timePrefix) {
+                    $q->where('start_time', $startTime)
+                      ->orWhere('start_time', $startTime->format('Y-m-d H:i:s'))
+                      ->orWhere('start_time', 'like', "{$datePrefix}%{$timePrefix}%");
+                })
                 ->where('status', 'confirmed')
                 ->lockForUpdate()
                 ->count();
@@ -197,9 +225,10 @@ new class extends Component
             }
 
             try {
+                $owner = $this->team->owner();
                 $booking = Booking::create([
                     'team_id' => $this->team->id,
-                    'user_id' => $this->team->owner()->id,
+                    'user_id' => $owner ? $owner->id : $this->team->user_id,
                     'guest_name' => $this->guest_name,
                     'guest_email' => $this->guest_email,
                     'guest_timezone' => $this->guest_timezone,
@@ -210,17 +239,22 @@ new class extends Component
                         'phone' => $this->guest_phone,
                         'industry' => $this->guest_industry,
                         'project_brief' => $this->project_brief,
-                        'notes' => $this->lead_data['notes'] ?? '',
+                        'notes' => '',
                     ],
                     'status' => 'confirmed',
                 ]);
 
+                // Dispatch Calendar Sync and Notifications
                 NotificationService::trigger($booking);
+                $booking->refresh();
 
+                $this->confirmedBooking = $booking;
+
+                // Build 1-click calendar links
                 $startUTC = $booking->start_time->format('Ymd\\THis\\Z');
                 $endUTC = $booking->end_time->format('Ymd\\THis\\Z');
                 $title = urlencode('Strategy Session with '.$this->team->name);
-                $details = urlencode('Join here: '.($booking->meet_link ?? 'Link will be provided'));
+                $details = urlencode('Google Meet: '.($booking->meet_link ?? 'Link in confirmation email')."\n\nGuest: {$this->guest_name}\nCompany: {$this->guest_company}");
 
                 $this->calendarLinks = [
                     'google' => "https://calendar.google.com/calendar/render?action=TEMPLATE&text={$title}&dates={$startUTC}/{$endUTC}&details={$details}",
@@ -228,8 +262,8 @@ new class extends Component
                 ];
 
                 $this->step = 3;
-            } catch (Exception $e) {
-                Log::error('Booking submit error: '.$e->getMessage());
+            } catch (\Exception $e) {
+                Log::error('Booking submission error: '.$e->getMessage());
                 throw $e;
             }
 
@@ -237,319 +271,407 @@ new class extends Component
         });
 
         if ($conflict) {
-            $this->addError('time', 'Sorry, this time was just booked. Please pick another.');
-            $this->dispatch('booking-error', message: 'Sorry, this time was just booked. Please pick another.');
+            $this->addError('time', 'This time slot was just taken. Please select another slot.');
             $this->step = 1;
             $this->time = null;
-            // Refresh available times for the selected date
             $this->selectDate($this->date);
 
-            return;
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'time' => 'This time slot was just taken. Please select another slot.',
+            ]);
         }
+    }
+
+    public function resetBooking()
+    {
+        $this->step = 1;
+        $this->time = null;
+        $this->guest_name = '';
+        $this->guest_email = '';
+        $this->guest_phone = '';
+        $this->guest_company = '';
+        $this->guest_industry = '';
+        $this->project_brief = '';
+        $this->confirmedBooking = null;
+        $this->selectDate($this->date);
     }
 };
 ?>
 
-<div class="w-full max-w-6xl mx-auto relative z-20 text-white bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-[2rem] p-5 md:p-8 overflow-hidden" style="box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); font-family: 'Plus Jakarta Sans', sans-serif;">
-    <!-- Ambient Glows -->
-    <div class="absolute -top-40 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-    <div class="absolute -bottom-40 -left-40 w-96 h-96 bg-green-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-
-    <div class="relative z-10" x-data="{ showError: false, errorMessage: '' }" @booking-error.window="showError = true; errorMessage = $event.detail.message; setTimeout(() => showError = false, 6000)">
-        <!-- Error Toast -->
-        <div x-show="showError" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 -translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-4"
-             class="mb-6 flex items-center justify-between gap-3 bg-red-500/10 border border-red-500/30 text-red-300 px-5 py-4 rounded-2xl backdrop-blur-md shadow-[0_0_20px_rgba(239,68,68,0.15)]"
-             x-cloak>
-            <div class="flex items-center gap-3">
-                <svg class="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span class="text-sm font-medium" x-text="errorMessage"></span>
-            </div>
-            <button type="button" @click="showError = false" class="text-red-400/50 hover:text-red-300 transition-colors">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-        </div>
-        <!-- Wizard Header -->
-        <div class="flex items-center justify-between mb-10 relative px-2 md:px-8">
-            <div class="absolute left-10 right-10 top-1/2 -translate-y-1/2 h-px bg-white/5 -z-10">
-                <div class="h-full bg-gradient-to-r from-zinc-100 to-zinc-300 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
-                     style="width: {{ $step === 1 ? '0%' : ($step === 2 ? '50%' : '100%') }}"></div>
-            </div>
-            
-            <!-- Step 1 -->
-            <div class="flex flex-col items-center gap-3">
-                <div @class([
-                    'w-12 h-12 rounded-full flex items-center justify-center text-base font-medium transition-all duration-500 border relative',
-                    'bg-zinc-100 border-zinc-100 text-zinc-900 shadow-[0_0_20px_rgba(255,255,255,0.3)] scale-110' => $step === 1,
-                    'bg-zinc-100 border-zinc-100 text-zinc-900' => $step > 1,
-                    'bg-zinc-900/80 border-white/10 text-white/40 backdrop-blur-md' => $step < 1
-                ])>
-                    @if($step > 1)
-                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                    @else
-                        1
-                    @endif
-                </div>
-                <span class="text-[10px] sm:text-xs font-bold tracking-widest uppercase transition-colors duration-300 {{ $step >= 1 ? 'text-white' : 'text-white/40' }}" style="font-family: 'Clash Display', sans-serif;">Date & Time</span>
-            </div>
-            
-            <!-- Step 2 -->
-            <div class="flex flex-col items-center gap-3">
-                <div @class([
-                    'w-12 h-12 rounded-full flex items-center justify-center text-base font-medium transition-all duration-500 border relative',
-                    'bg-zinc-100 border-zinc-100 text-zinc-900 shadow-[0_0_20px_rgba(255,255,255,0.3)] scale-110' => $step === 2,
-                    'bg-zinc-100 border-zinc-100 text-zinc-900' => $step > 2,
-                    'bg-zinc-900/80 border-white/10 text-white/40 backdrop-blur-md' => $step < 2
-                ])>
-                    @if($step > 2)
-                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                    @else
-                        2
-                    @endif
-                </div>
-                <span class="text-[10px] sm:text-xs font-bold tracking-widest uppercase transition-colors duration-300 {{ $step >= 2 ? 'text-white' : 'text-white/40' }}" style="font-family: 'Clash Display', sans-serif;">Details</span>
-            </div>
-            
-            <!-- Step 3 -->
-            <div class="flex flex-col items-center gap-3">
-                <div @class([
-                    'w-12 h-12 rounded-full flex items-center justify-center text-base font-medium transition-all duration-500 border relative',
-                    'bg-green-400 border-green-400 text-zinc-900 shadow-[0_0_20px_rgba(74,222,128,0.4)] scale-110' => $step === 3,
-                    'bg-zinc-900/80 border-white/10 text-white/40 backdrop-blur-md' => $step < 3
-                ])>3</div>
-                <span class="text-[10px] sm:text-xs font-bold tracking-widest uppercase transition-colors duration-300 {{ $step == 3 ? 'text-white' : 'text-white/40' }}" style="font-family: 'Clash Display', sans-serif;">Done</span>
-            </div>
+<div class="w-full text-zinc-100 font-sans">
+    
+    <!-- Step Navigation Indicator -->
+    <div class="flex items-center justify-between pb-6 mb-6 border-b border-zinc-800">
+        <div class="flex items-center gap-2">
+            <span @class([
+                'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all',
+                'bg-amber-500 text-zinc-950 shadow-sm shadow-amber-500/30' => $step === 1,
+                'bg-zinc-800 text-emerald-400' => $step > 1,
+            ])>
+                @if($step > 1) ✓ @else 1 @endif
+            </span>
+            <span class="text-xs font-semibold uppercase tracking-wider {{ $step === 1 ? 'text-white' : 'text-zinc-400' }}">Time</span>
         </div>
 
-        <div>
-            @if($step === 1)
-            <div wire:key="step-1" class="animate-in fade-in slide-in-from-bottom-8 duration-700 ease-out">
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12 items-start relative">
-                    
-                    <!-- Left: Calendar -->
-                    <div class="space-y-6">
-                        <div class="flex items-center justify-between px-2">
-                            <h3 class="text-lg md:text-xl font-semibold text-white tracking-wide" style="font-family: 'Clash Display', sans-serif;">
-                                {{ Carbon::create($currentYear, $currentMonth, 1)->format('F Y') }}
-                            </h3>
-                            <div class="flex items-center space-x-1 bg-zinc-800/30 p-1 rounded-full border border-white/5">
-                                <button type="button" wire:click="prevMonth" class="p-2 hover:bg-white/10 rounded-full transition-colors text-white/50 hover:text-white">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-                                </button>
-                                <button type="button" wire:click="nextMonth" class="p-2 hover:bg-white/10 rounded-full transition-colors text-white/50 hover:text-white">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                                </button>
-                            </div>
-                        </div>
+        <div class="h-0.5 w-12 bg-zinc-800">
+            <div class="h-full bg-amber-500 transition-all duration-300" style="width: {{ $step === 1 ? '0%' : ($step === 2 ? '50%' : '100%') }}"></div>
+        </div>
 
-                        <div class="grid grid-cols-7 gap-y-4 gap-x-2 text-center text-[10px] font-bold text-white/40 tracking-widest uppercase" style="font-family: 'Clash Display', sans-serif;">
-                            <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
-                        </div>
+        <div class="flex items-center gap-2">
+            <span @class([
+                'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all',
+                'bg-amber-500 text-zinc-950 shadow-sm shadow-amber-500/30' => $step === 2,
+                'bg-zinc-800 text-emerald-400' => $step > 2,
+                'bg-zinc-800 text-zinc-500' => $step < 2,
+            ])>
+                @if($step > 2) ✓ @else 2 @endif
+            </span>
+            <span class="text-xs font-semibold uppercase tracking-wider {{ $step === 2 ? 'text-white' : 'text-zinc-500' }}">Intake</span>
+        </div>
 
-                        <div class="grid grid-cols-7 gap-y-3 gap-x-2">
-                            @foreach($calendarDays as $dayInfo)
-                                @if(is_null($dayInfo))
-                                    <div class="aspect-square"></div>
-                                @else
-                                    @php
-                                        $isSelected = $date === $dayInfo['dateStr'];
-                                        $isDisabled = $dayInfo['isPast'];
-                                    @endphp
-                                    <button 
-                                        type="button"
-                                        wire:click="selectDate('{{ $dayInfo['dateStr'] }}')"
-                                        @disabled($isDisabled)
-                                        @class([
-                                            'aspect-square w-full rounded-full flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 relative focus:outline-none',
-                                            'bg-white text-zinc-900 shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110 z-10' => $isSelected,
-                                            'text-white/20 pointer-events-none' => $isDisabled,
-                                            'text-white/80 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/10 hover:scale-105' => !$isSelected && !$isDisabled,
-                                        ])
-                                    >
-                                        <span>{{ $dayInfo['day'] }}</span>
-                                        @if($isSelected)
-                                            <div class="absolute -bottom-1 w-1 h-1 bg-white rounded-full"></div>
-                                        @endif
-                                    </button>
-                                @endif
-                            @endforeach
-                        </div>
-                    </div>
+        <div class="h-0.5 w-12 bg-zinc-800">
+            <div class="h-full bg-amber-500 transition-all duration-300" style="width: {{ $step === 3 ? '100%' : '0%' }}"></div>
+        </div>
 
-                    <!-- Right: Time Slots -->
-                    <div class="space-y-6 md:pl-8 md:border-l md:border-white/5 h-full flex flex-col">
-                        <div class="flex items-center justify-between px-2">
-                            <h3 class="text-xl md:text-2xl font-semibold text-white tracking-wide" style="font-family: 'Clash Display', sans-serif;">
-                                @if($date) Select Time @else Pick Date @endif
-                            </h3>
-                            <div class="text-[10px] font-medium text-white/50 bg-zinc-800/40 px-3 py-1.5 rounded-full border border-white/5 backdrop-blur-sm" x-data x-init="$wire.set('guest_timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)">
-                                <span x-text="Intl.DateTimeFormat().resolvedOptions().timeZone"></span>
-                            </div>
-                        </div>
-
-                        @if($date)
-                            @error('time')
-                                <div class="mb-3 px-4 py-3 bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl backdrop-blur-md flex items-center gap-2">
-                                    <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                    <span>{{ $message }}</span>
-                                </div>
-                            @enderror
-                            <div class="grid grid-cols-2 gap-3 flex-1 overflow-y-auto pr-2 stylish-scroll max-h-[320px] content-start pb-4">
-                                @foreach($availableTimes as $slot)
-                                    @php
-                                        $slotTime = is_array($slot) ? $slot['time'] : $slot;
-                                        $slotAvailable = is_array($slot) ? ($slot['available'] ?? true) : true;
-                                    @endphp
-                                    <button 
-                                        type="button"
-                                        @if($slotAvailable)
-                                        wire:click="$set('time', '{{ $slotTime }}')"
-                                        @endif
-                                        @disabled(!$slotAvailable)
-                                        @class([
-                                            'w-full py-4 px-4 text-sm font-medium rounded-2xl border transition-all duration-300 flex items-center justify-between focus:outline-none group',
-                                            'bg-white text-zinc-900 border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' => $time === $slotTime,
-                                            'bg-zinc-800/30 text-white/70 border-white/5 hover:bg-zinc-800/60 hover:text-white hover:border-white/20 hover:shadow-lg' => $time !== $slotTime && $slotAvailable,
-                                            'bg-zinc-800/10 text-white/20 border-white/5 opacity-40 cursor-not-allowed pointer-events-none' => !$slotAvailable,
-                                        ])
-                                    >
-                                        <div class="flex items-center space-x-2">
-                                            <svg @class([
-                                                'w-4 h-4 transition-colors',
-                                                'text-zinc-900' => $time === $slotTime,
-                                                'text-white/30 group-hover:text-white/50' => $time !== $slotTime && $slotAvailable,
-                                                'text-white/10' => !$slotAvailable,
-                                            ]) fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                            <span>{{ $slotTime }}</span>
-                                        </div>
-                                        @if(!$slotAvailable)
-                                            <span class="text-[10px] font-medium text-white/10 uppercase tracking-wider">Booked</span>
-                                        @endif
-                                    </button>
-                                @endforeach
-                            </div>
-                        @else
-                            <div class="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-3xl bg-zinc-800/20 p-8 text-center min-h-[320px]">
-                                <div class="w-16 h-16 bg-zinc-800/50 rounded-full flex items-center justify-center mb-4 border border-white/5">
-                                    <svg class="w-8 h-8 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                                </div>
-                                <span class="text-sm text-white/40 leading-relaxed font-medium">Select a date from the calendar<br>to view available times</span>
-                            </div>
-                        @endif
-                    </div>
-                </div>
-
-                <div class="mt-8 flex justify-end border-t border-white/5 pt-8 pb-4">
-                    <button type="button" wire:click="nextStep" class="magnetic bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-bold py-3.5 px-8 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] flex items-center space-x-2" @disabled(!$date || !$time)>
-                        <span>Continue</span>
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
-                    </button>
-                </div>
-            </div>
-            @endif
-
-            @if($step === 2)
-            <form wire:submit="submit" wire:key="step-2" class="animate-in fade-in slide-in-from-right-8 duration-700 ease-out">
-                
-                <div class="bg-zinc-800/40 border border-white/5 backdrop-blur-md p-5 rounded-2xl flex items-center justify-between mb-8 shadow-inner">
-                    <div class="flex items-center space-x-4 text-sm text-white/70">
-                        <div class="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center border border-white/5">
-                            <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                        </div>
-                        <div>
-                            <div class="font-semibold text-white text-base">{{ \Carbon\Carbon::parse($date)->format('l, F j, Y') }}</div>
-                            <div class="text-xs mt-0.5 text-white/60">{{ $time }} ({{ $guest_timezone }})</div>
-                        </div>
-                    </div>
-                    <button type="button" wire:click="prevStep" class="magnetic text-xs font-bold tracking-wide uppercase text-white/50 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-4 py-2 rounded-full border border-white/10">Change</button>
-                </div>
-                
-                <div class="space-y-6 max-h-[400px] overflow-y-auto pr-2 stylish-scroll text-sm pb-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <flux:input wire:model="guest_name" label="Full Name" placeholder="Jane Doe" required class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white !placeholder-white/20 transition-all rounded-xl" />
-                        <flux:input wire:model="guest_email" type="email" label="Email Address" placeholder="jane@example.com" required class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white !placeholder-white/20 transition-all rounded-xl" />
-                    </div>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <flux:input wire:model="guest_phone" label="Phone (optional)" placeholder="+1 (555) 000-0000" class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white !placeholder-white/20 transition-all rounded-xl" />
-                        <flux:input wire:model="guest_company" label="Company (optional)" placeholder="Acme Corp" class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white !placeholder-white/20 transition-all rounded-xl" />
-                    </div>
-
-                    <flux:select wire:model="guest_industry" label="Industry" placeholder="Select industry..." class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white transition-all rounded-xl">
-                        <flux:select.option value="Technology">Technology</flux:select.option>
-                        <flux:select.option value="Finance">Finance</flux:select.option>
-                        <flux:select.option value="Healthcare">Healthcare</flux:select.option>
-                        <flux:select.option value="Education">Education</flux:select.option>
-                        <flux:select.option value="Hospitality">Hospitality</flux:select.option>
-                        <flux:select.option value="Retail">Retail</flux:select.option>
-                        <flux:select.option value="Real Estate">Real Estate</flux:select.option>
-                        <flux:select.option value="Other">Other</flux:select.option>
-                    </flux:select>
-                    
-                    <flux:textarea wire:model="project_brief" label="Project Brief" placeholder="Tell us a little about what you're looking to achieve..." rows="3" class="!bg-zinc-800/50 !border-white/5 focus:!border-white/20 !text-white !placeholder-white/20 transition-all rounded-xl" />
-                </div>
-
-                <div class="flex items-center justify-between mt-8 pt-8 border-t border-white/5">
-                    <button type="button" wire:click="prevStep" class="magnetic text-white/50 hover:text-white text-sm font-semibold transition-colors flex items-center space-x-2">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-                        <span>Back</span>
-                    </button>
-                    <button type="submit" class="magnetic bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-bold py-3.5 px-8 rounded-full transition-all duration-300 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] flex items-center space-x-2">
-                        <span>Confirm Booking</span>
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                    </button>
-                </div>
-            </form>
-            @endif
-
-            @if($step === 3)
-            <div wire:key="step-3" class="text-center animate-in zoom-in-95 duration-700 ease-out py-10">
-                <div class="w-24 h-24 bg-zinc-800/50 border border-white/10 rounded-full flex items-center justify-center mx-auto mb-8 relative">
-                    <div class="absolute inset-0 bg-green-400/20 rounded-full blur-xl"></div>
-                    <svg class="w-10 h-10 text-green-400 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                </div>
-                
-                <h2 class="text-3xl md:text-4xl font-semibold text-white mb-4 tracking-wide" style="font-family: 'Clash Display', sans-serif;">Booking Confirmed!</h2>
-                <p class="text-white/60 text-base mb-10 font-medium">
-                    {{ \Carbon\Carbon::parse($date)->format('l, F j, Y') }} at {{ $time }}
-                </p>
-
-                <div class="flex flex-col space-y-3 mb-10 max-w-sm mx-auto">
-                    <a href="{{ $calendarLinks['google'] ?? '#' }}" target="_blank" class="magnetic w-full inline-flex items-center justify-center space-x-3 px-5 py-4 bg-zinc-800/50 hover:bg-zinc-800/80 border border-white/5 rounded-2xl text-sm font-semibold text-white transition-all hover:shadow-[0_0_15px_rgba(255,255,255,0.05)]">
-                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.333.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/></svg>
-                        <span>Add to Google Calendar</span>
-                    </a>
-                    <a href="{{ $calendarLinks['outlook'] ?? '#' }}" target="_blank" class="magnetic w-full inline-flex items-center justify-center space-x-3 px-5 py-4 bg-[#0078D4]/20 hover:bg-[#0078D4]/40 border border-[#0078D4]/30 rounded-2xl text-sm font-semibold text-white transition-all hover:shadow-[0_0_20px_rgba(0,120,212,0.3)]">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M1.146 5.826a.853.853 0 0 1 .537-.791l10.455-4.182a.853.853 0 0 1 1.05.385l8.181 16.363a.853.853 0 0 1-.384 1.05L10.53 22.834a.853.853 0 0 1-1.05-.385L1.3 6.086a.853.853 0 0 1-.154-.26zm11.516.4L3.892 9.73l8.77 1.83zm.507 1.341 8.77-1.83-6.577-13.153zm-1.077.58L3.322 9.977l6.576 13.154zm1.185.203 8.77 1.83-8.77-17.54z"/></svg>
-                        <span>Add to Outlook</span>
-                    </a>
-                </div>
-
-                <div class="bg-zinc-800/30 border border-white/5 rounded-2xl p-6 mx-auto max-w-sm backdrop-blur-sm shadow-inner">
-                    <div class="text-center text-sm text-white/60">
-                        <p class="mb-2">Booking Reference: <strong class="text-white">{{ $guest_name }}</strong></p>
-                        <p class="text-[11px] text-white/40 leading-relaxed">A confirmation email has been sent to<br>{{ $guest_email }}</p>
-                    </div>
-                </div>
-            </div>
-            @endif
+        <div class="flex items-center gap-2">
+            <span @class([
+                'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all',
+                'bg-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/30' => $step === 3,
+                'bg-zinc-800 text-zinc-500' => $step < 3,
+            ])>
+                3
+            </span>
+            <span class="text-xs font-semibold uppercase tracking-wider {{ $step === 3 ? 'text-emerald-400' : 'text-zinc-500' }}">Confirmed</span>
         </div>
     </div>
-    
-    <style>
-        .stylish-scroll::-webkit-scrollbar {
-            width: 4px;
-        }
-        .stylish-scroll::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 4px;
-        }
-        .stylish-scroll::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-        }
-        .stylish-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-    </style>
+
+    <!-- STEP 1: Date & Time Picker -->
+    @if($step === 1)
+        <div class="space-y-6">
+            
+            <!-- Timezone Selector Bar -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                <div class="flex items-center gap-2 text-xs text-zinc-400">
+                    <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Timezone:</span>
+                </div>
+                <select wire:model.live="guest_timezone" class="bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none">
+                    @foreach($timezones as $tzKey => $tzLabel)
+                        <option value="{{ $tzKey }}">{{ $tzLabel }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="grid md:grid-cols-12 gap-6 items-start">
+                
+                <!-- Calendar (7 cols) -->
+                <div class="md:col-span-7 bg-zinc-950/50 p-4 rounded-xl border border-zinc-800">
+                    <!-- Month Header -->
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="font-bold text-base text-zinc-100">
+                            {{ \Carbon\Carbon::create($currentYear, $currentMonth, 1)->format('F Y') }}
+                        </span>
+                        <div class="flex items-center gap-1">
+                            <button type="button" wire:click="prevMonth" class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <button type="button" wire:click="nextMonth" class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Days of Week -->
+                    <div class="grid grid-cols-7 gap-1 text-center mb-2">
+                        @foreach(['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as $dow)
+                            <div class="text-[11px] font-semibold text-zinc-500 py-1">{{ $dow }}</div>
+                        @endforeach
+                    </div>
+
+                    <!-- Days Grid -->
+                    <div class="grid grid-cols-7 gap-1.5 text-center">
+                        @foreach($calendarDays as $dayObj)
+                            @if(is_null($dayObj))
+                                <div class="h-9"></div>
+                            @else
+                                @php
+                                    $isSelected = ($date === $dayObj['dateStr']);
+                                    $isDisabled = $dayObj['isPast'] || $dayObj['isWeekend'];
+                                @endphp
+                                <button
+                                    type="button"
+                                    wire:click="selectDate('{{ $dayObj['dateStr'] }}')"
+                                    @disabled($isDisabled)
+                                    @class([
+                                        'h-9 rounded-lg text-xs font-medium flex items-center justify-center transition-all relative',
+                                        'bg-amber-500 text-zinc-950 font-bold shadow-sm shadow-amber-500/30' => $isSelected,
+                                        'text-zinc-600 cursor-not-allowed bg-transparent' => $isDisabled && !$isSelected,
+                                        'text-zinc-200 hover:bg-zinc-800/80 bg-zinc-900/60' => !$isDisabled && !$isSelected,
+                                        'border border-amber-500/50' => $dayObj['isToday'] && !$isSelected,
+                                    ])
+                                >
+                                    {{ $dayObj['day'] }}
+                                    @if($dayObj['isToday'] && !$isSelected)
+                                        <span class="absolute bottom-1 w-1 h-1 rounded-full bg-amber-400"></span>
+                                    @endif
+                                </button>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+
+                <!-- Available Slots Column (5 cols) -->
+                <div class="md:col-span-5 flex flex-col space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                            {{ $date ? \Carbon\Carbon::parse($date)->format('D, M j') : 'Select a date' }}
+                        </span>
+                        <span class="text-[11px] text-zinc-500">45 Min Strategy Call</span>
+                    </div>
+
+                    <div class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                        @forelse($availableTimes as $slot)
+                            @php
+                                $slotTime = is_array($slot) ? $slot['time'] : $slot;
+                                $slotFormatted = is_array($slot) ? ($slot['formatted'] ?? \Carbon\Carbon::parse($slotTime)->format('g:i A')) : \Carbon\Carbon::parse($slotTime)->format('g:i A');
+                                $slotAvailable = is_array($slot) ? ($slot['available'] ?? true) : true;
+                            @endphp
+                            @if($slotAvailable)
+                                <button
+                                    type="button"
+                                    wire:click="selectTime('{{ $slotTime }}')"
+                                    @class([
+                                        'w-full py-2.5 px-4 rounded-xl text-xs font-semibold transition-all flex items-center justify-between border',
+                                        'bg-amber-500 text-zinc-950 border-amber-400 shadow-sm shadow-amber-500/20' => $time === $slotTime,
+                                        'bg-zinc-950/60 text-zinc-200 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900' => $time !== $slotTime,
+                                    ])
+                                >
+                                    <span>{{ $slotFormatted }}</span>
+                                    <span class="text-[10px] opacity-75 font-normal">Available</span>
+                                </button>
+                            @else
+                                <div class="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-zinc-600 bg-zinc-950/30 border border-zinc-900 flex items-center justify-between cursor-not-allowed">
+                                    <span class="line-through">{{ $slotFormatted }}</span>
+                                    <span class="text-[10px] uppercase tracking-wider text-zinc-600 font-normal">Booked</span>
+                                </div>
+                            @endif
+                        @empty
+                            <div class="text-center py-8 text-xs text-zinc-500 bg-zinc-950/30 rounded-xl border border-zinc-800/50">
+                                No slots available for this day.
+                            </div>
+                        @endforelse
+                    </div>
+
+                    @error('time')
+                        <p class="text-xs text-red-400 mt-1">{{ $message }}</p>
+                    @enderror
+
+                    <!-- Continue Button -->
+                    <div class="pt-2">
+                        <button
+                            type="button"
+                            wire:click="goToStep2"
+                            @disabled(!$date || !$time)
+                            @class([
+                                'w-full py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2',
+                                'bg-gradient-to-r from-amber-500 to-amber-600 text-zinc-950 hover:from-amber-400 hover:to-amber-500 shadow-lg shadow-amber-500/20 cursor-pointer' => $date && $time,
+                                'bg-zinc-800 text-zinc-500 cursor-not-allowed' => !$date || !$time,
+                            ])
+                        >
+                            <span>Next: Enter Details</span>
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    @endif
+
+    <!-- STEP 2: Lead Intake Form -->
+    @if($step === 2)
+        <form wire:submit="submit" class="space-y-4">
+            
+            <!-- Summary of chosen slot -->
+            <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-200">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    <span><strong>{{ $date ? \Carbon\Carbon::parse($date)->format('l, F j, Y') : 'Date Selected' }}</strong> at <strong>{{ $time ? \Carbon\Carbon::parse($time)->format('g:i A') : 'Time Selected' }}</strong> ({{ $guest_timezone }})</span>
+                </div>
+                <button type="button" wire:click="goToStep1" class="text-amber-400 hover:underline font-semibold text-[11px]">Change</button>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-4">
+                <!-- Full Name -->
+                <div>
+                    <label class="block text-xs font-medium text-zinc-300 mb-1.5">Full Name <span class="text-red-400">*</span></label>
+                    <input
+                        type="text"
+                        wire:model="guest_name"
+                        placeholder="Tawanda Moyo"
+                        class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                    />
+                    @error('guest_name') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <!-- Work Email -->
+                <div>
+                    <label class="block text-xs font-medium text-zinc-300 mb-1.5">Work Email <span class="text-red-400">*</span></label>
+                    <input
+                        type="email"
+                        wire:model="guest_email"
+                        placeholder="tawanda@company.com"
+                        class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                    />
+                    @error('guest_email') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+            </div>
+
+            <div class="grid sm:grid-cols-3 gap-4">
+                <!-- Phone Number -->
+                <div>
+                    <label class="block text-xs font-medium text-zinc-300 mb-1.5">WhatsApp / Phone</label>
+                    <input
+                        type="tel"
+                        wire:model="guest_phone"
+                        placeholder="+263 77 123 4567"
+                        class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                    />
+                    @error('guest_phone') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <!-- Company Name -->
+                <div>
+                    <label class="block text-xs font-medium text-zinc-300 mb-1.5">Company Name</label>
+                    <input
+                        type="text"
+                        wire:model="guest_company"
+                        placeholder="Apex Logistics"
+                        class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                    />
+                    @error('guest_company') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <!-- Industry -->
+                <div>
+                    <label class="block text-xs font-medium text-zinc-300 mb-1.5">Industry</label>
+                    <input
+                        type="text"
+                        wire:model="guest_industry"
+                        placeholder="Fintech, Retail, etc."
+                        class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                    />
+                    @error('guest_industry') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+            </div>
+
+            <!-- Project Brief / Automation Goals -->
+            <div>
+                <label class="block text-xs font-medium text-zinc-300 mb-1.5">What are your primary goals or operational bottlenecks?</label>
+                <textarea
+                    wire:model="project_brief"
+                    rows="3"
+                    placeholder="Describe what processes you want to streamline, current tech stack, or challenges you're facing..."
+                    class="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none"
+                ></textarea>
+                @error('project_brief') <p class="text-[11px] text-red-400 mt-1">{{ $message }}</p> @enderror
+            </div>
+
+            <!-- Actions Bar -->
+            <div class="flex items-center justify-between pt-4 border-t border-zinc-800">
+                <button
+                    type="button"
+                    wire:click="goToStep1"
+                    class="py-2.5 px-4 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                >
+                    ← Back
+                </button>
+
+                <button
+                    type="submit"
+                    wire:loading.attr="disabled"
+                    class="py-3 px-6 rounded-xl text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-amber-500 to-amber-600 text-zinc-950 hover:from-amber-400 hover:to-amber-500 shadow-lg shadow-amber-500/20 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                    <span wire:loading.remove>Confirm & Schedule Session</span>
+                    <span wire:loading>Securing your slot...</span>
+                </button>
+            </div>
+
+        </form>
+    @endif
+
+    <!-- STEP 3: Booking Confirmed -->
+    @if($step === 3 && $confirmedBooking)
+        <div class="text-center space-y-6 py-4">
+            
+            <!-- Success Icon -->
+            <div class="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400 shadow-lg shadow-emerald-500/20">
+                <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+            </div>
+
+            <div>
+                <h3 class="text-2xl font-bold text-white">Strategy Session Confirmed!</h3>
+                <p class="text-xs text-zinc-400 mt-1.5">A calendar invitation and confirmation email have been sent to <strong>{{ $confirmedBooking->guest_email }}</strong>.</p>
+            </div>
+
+            <!-- Session Details Summary Card -->
+            <div class="max-w-md mx-auto p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-left space-y-3 text-xs">
+                <div class="flex items-start justify-between border-b border-zinc-800/80 pb-2.5">
+                    <span class="text-zinc-400">Date & Time:</span>
+                    <span class="font-semibold text-zinc-100 text-right">
+                        {{ $confirmedBooking->start_time->setTimezone($confirmedBooking->guest_timezone)->format('l, F j, Y') }}<br>
+                        <span class="text-amber-400">{{ $confirmedBooking->start_time->setTimezone($confirmedBooking->guest_timezone)->format('g:i A') }} ({{ $confirmedBooking->guest_timezone }})</span>
+                    </span>
+                </div>
+
+                <div class="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+                    <span class="text-zinc-400">Host:</span>
+                    <span class="font-semibold text-zinc-100">{{ $team->name }}</span>
+                </div>
+
+                <div class="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+                    <span class="text-zinc-400">Meeting Platform:</span>
+                    <span class="font-semibold text-emerald-400 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/></svg>
+                        Google Meet Video
+                    </span>
+                </div>
+
+                @if(!empty($confirmedBooking->meet_link))
+                    <div class="pt-1">
+                        <a href="{{ $confirmedBooking->meet_link }}" target="_blank" class="w-full py-2 px-3 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-300 font-semibold text-center block transition">
+                            Open Google Meet Link ↗
+                        </a>
+                    </div>
+                @endif
+            </div>
+
+            <!-- 1-Click Add to Calendar Buttons -->
+            <div class="space-y-2 pt-2">
+                <p class="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Add to your calendar</p>
+                <div class="flex flex-wrap items-center justify-center gap-3">
+                    @if(isset($calendarLinks['google']))
+                        <a href="{{ $calendarLinks['google'] }}" target="_blank" class="py-2 px-4 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-200 transition flex items-center gap-2">
+                            <span>Google Calendar</span>
+                        </a>
+                    @endif
+                    @if(isset($calendarLinks['outlook']))
+                        <a href="{{ $calendarLinks['outlook'] }}" target="_blank" class="py-2 px-4 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-200 transition flex items-center gap-2">
+                            <span>Outlook Calendar</span>
+                        </a>
+                    @endif
+                </div>
+            </div>
+
+            <!-- Book Another Button -->
+            <div class="pt-4 border-t border-zinc-800">
+                <button type="button" wire:click="resetBooking" class="text-xs text-zinc-400 hover:text-white transition">
+                    Book another appointment
+                </button>
+            </div>
+
+        </div>
+    @endif
+
 </div>

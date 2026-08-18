@@ -3,14 +3,20 @@
 namespace Tests\Feature;
 
 use App\Models\Team;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 class LivewireBookingTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_booking_submission()
     {
-        $team = Team::where('slug', 'ottomate-space')->first();
+        $user = User::factory()->create();
+        $team = Team::factory()->create(['slug' => 'ottomate-space']);
+        $team->members()->attach($user, ['role' => 'owner']);
 
         Livewire::test('booking-wizard', ['team' => $team])
             ->set('step', 1)

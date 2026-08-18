@@ -43,15 +43,16 @@ new class extends Component {
 
         $user = Auth::user();
 
-        $fallbackTeam = $user->isCurrentTeam($this->team)
-            ? $user->fallbackTeam($this->team)
-            : null;
+        $fallbackTeam = $user->fallbackTeam($this->team);
 
-        DB::transaction(function () use ($user) {
+        DB::transaction(function () use ($user, $fallbackTeam) {
             User::where('current_team_id', $this->team->id)
                 ->where('id', '!=', $user->id)
-                ->each(fn (User $affectedUser) => $affectedUser->switchTeam($affectedUser->personalTeam()));
+                ->each(fn (User $affectedUser) => $affectedUser->switchTeam($affectedUser->fallbackTeam($this->team)));
 
+            // Clean up team assets
+            \App\Models\Booking::where('team_id', $this->team->id)->delete();
+            \App\Models\Availability::where('team_id', $this->team->id)->delete();
             $this->team->invitations()->delete();
             $this->team->memberships()->delete();
             $this->team->delete();
@@ -59,6 +60,15 @@ new class extends Component {
 
         if ($fallbackTeam) {
             $user->switchTeam($fallbackTeam);
+        } else {
+            $freshTeam = Team::create([
+                'name' => $user->name . "'s Team",
+                'slug' => \Illuminate\Support\Str::slug($user->name . "-team-" . uniqid()),
+                'user_id' => $user->id,
+                'is_personal' => true,
+            ]);
+            $freshTeam->members()->attach($user, ['role' => 'owner']);
+            $user->switchTeam($freshTeam);
         }
 
         Flux::toast(variant: 'success', text: __('Team deleted.'));

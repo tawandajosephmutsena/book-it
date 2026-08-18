@@ -2,33 +2,9 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
     <head>
         @include('partials.head')
-        <style>
-            /* Steampunk sidebar item overrides */
-            [data-flux-sidebar-item] { transition: all 0.2s ease; }
-            [data-flux-sidebar-item]:hover { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(180,83,9,0.05)); border-left: 2px solid rgba(245,158,11,0.3); }
-            [data-flux-sidebar-item][data-current] { background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(180,83,9,0.08)); color: #fbbf24; border-left: 2px solid #f59e0b; }
-            [data-flux-sidebar-item] svg { transition: color 0.2s; }
-            [data-flux-sidebar-item]:hover svg { color: #f59e0b; }
-            [data-flux-sidebar-item][data-current] svg { color: #fbbf24; }
-            /* Sidebar group headings */
-            [data-flux-sidebar-group] > [data-flux-sidebar-heading] { color: #a16207; font-size: 0.65rem; letter-spacing: 0.15em; text-transform: uppercase; }
-            /* Brass divider texture effect on sidebar */
-            flux\\:sidebar::before {
-                content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%;
-                background: linear-gradient(to bottom, transparent, rgba(180,83,9,0.15) 20%, rgba(245,158,11,0.25) 50%, rgba(180,83,9,0.15) 80%, transparent);
-                pointer-events: none; z-index: 10;
-            }
-            /* Steampunk gear watermark — subtle */
-            flux\\:sidebar::after {
-                content: '⚙'; position: absolute; bottom: 4rem; right: 0.5rem;
-                font-size: 5rem; opacity: 0.03; transform: rotate(15deg); pointer-events: none; z-index: 0;
-            }
-            /* Main content area */
-            [data-flux-main] { background: #1c1917; }
-        </style>
     </head>
-    <body class="min-h-screen bg-[#1c1917] dark:bg-[#1c1917]">
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-amber-900/20 bg-[#151310] dark:bg-[#151310] shadow-[inset_-1px_0_0_rgba(180,83,9,0.08)]">
+    <body class="min-h-screen bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 antialiased">
+        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="lg:hidden" />
@@ -65,7 +41,7 @@
         </flux:sidebar>
 
         <!-- Mobile User Menu -->
-        <flux:header class="lg:hidden border-b border-amber-900/20 bg-[#151310]">
+        <flux:header class="lg:hidden border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
             <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
             <flux:spacer />

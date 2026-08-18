@@ -14,12 +14,9 @@ class NotificationService
      */
     public static function trigger(Booking $booking)
     {
-        // 1. Generate Google Meet Link if not set
-        if (empty($booking->meet_link)) {
-            $booking->update([
-                'meet_link' => 'https://meet.google.com/'.substr(md5(uniqid()), 0, 10),
-            ]);
-        }
+        // 1. Create real Google Calendar Event (which generates a real Meet link)
+        \App\Services\GoogleCalendarService::createEvent($booking);
+        $booking->refresh(); // Refresh to get the generated meet_link
 
         // 2. Send Email Notification
         self::sendEmail($booking);
@@ -80,6 +77,14 @@ class NotificationService
             return;
         }
 
+        // Meta WhatsApp API requires recipient phone with country code (numbers only)
+        $recipientPhone = preg_replace('/[^0-9]/', '', $booking->phone ?? '');
+
+        if (empty($recipientPhone)) {
+            Log::info("WhatsApp skipped: Guest {$booking->guest_name} did not provide a valid phone number.");
+            return;
+        }
+
         $apiUrl = "https://graph.facebook.com/v19.0/{$phoneNumberId}/messages";
         $formattedTime = $booking->start_time->setTimezone($booking->guest_timezone)->format('F j, g:i A');
 
@@ -87,7 +92,7 @@ class NotificationService
             $response = Http::withToken($accessToken)
                 ->post($apiUrl, [
                     'messaging_product' => 'whatsapp',
-                    'to' => $booking->guest_email, // Meta API requires phone number but let's send to guest's phone if saved or email as placeholder
+                    'to' => $recipientPhone,
                     'type' => 'template',
                     'template' => [
                         'name' => $templateName,
@@ -107,7 +112,7 @@ class NotificationService
             if ($response->failed()) {
                 Log::error('WhatsApp notification failed: '.$response->body());
             } else {
-                Log::info("WhatsApp notification sent to: {$booking->guest_name}");
+                Log::info("WhatsApp notification sent to: {$booking->guest_name} ({$recipientPhone})");
             }
         } catch (\Exception $e) {
             Log::error('WhatsApp notifications API error: '.$e->getMessage());
