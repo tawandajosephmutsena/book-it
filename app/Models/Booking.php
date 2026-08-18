@@ -66,4 +66,34 @@ class Booking extends Model
     {
         return $this->belongsTo(EventType::class);
     }
+
+    public function getPhoneAttribute()
+    {
+        return $this->lead_data['phone'] ?? null;
+    }
+
+    public function getCompanyAttribute()
+    {
+        return $this->lead_data['company'] ?? null;
+    }
+
+    public function getIndustryAttribute()
+    {
+        return $this->lead_data['industry'] ?? null;
+    }
+
+    public function getProjectBriefAttribute()
+    {
+        return $this->lead_data['project_brief'] ?? null;
+    }
+
+    public function getNotesAttribute()
+    {
+        return $this->lead_data['notes'] ?? null;
+    }
+
+    public function isNew()
+    {
+        return $this->created_at && $this->created_at->diffInHours(now()) < 24;
+    }
 }

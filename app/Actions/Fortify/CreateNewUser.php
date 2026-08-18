@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
+use Laravel\Fortify\Features;
 
 class CreateNewUser implements CreatesNewUsers
 {
@@ -26,6 +27,8 @@ class CreateNewUser implements CreatesNewUsers
      */
     public function create(array $input): User
     {
+        abort_if(! Features::enabled(Features::registration()), 403, 'Registration is closed.');
+
         Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),

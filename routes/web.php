@@ -6,6 +6,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
 
+Route::get('/register', function () {
+    return redirect('/login')->with('status', 'Registration is closed. Please ask your administrator for an invite.');
+})->name('register');
+
 Route::middleware('auth')->group(function () {
     Route::get('/auth/google', [GoogleController::class, 'redirectToGoogle'])->name('google.connect');
     Route::get('/auth/google/callback', [GoogleController::class, 'handleGoogleCallback']);

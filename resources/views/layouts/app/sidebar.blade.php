@@ -39,7 +39,7 @@
             <flux:sidebar.nav>
                 <flux:sidebar.group :heading="__('Book-it')" class="grid">
                     <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Command Center') }}
+                        {{ __('Dashboard') }}
                     </flux:sidebar.item>
                     <flux:sidebar.item icon="calendar" href="/" target="_blank" wire:navigate="false">
                         {{ __('Public Page') }}

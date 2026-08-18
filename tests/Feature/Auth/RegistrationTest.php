@@ -1,25 +1,12 @@
 <?php
 
-use App\Models\User;
-
-test('registration screen can be rendered', function () {
+test('registration page redirects to login with a closed message', function () {
     $response = $this->get(route('register'));
 
-    $response->assertOk();
+    $response->assertRedirect(route('login'))
+        ->assertSessionHas('status', 'Registration is closed. Please ask your administrator for an invite.');
 });
 
-test('new users can register', function () {
-    $response = $this->post(route('register.store'), [
-        'name' => 'John Doe',
-        'email' => 'test@example.com',
-        'password' => 'password',
-        'password_confirmation' => 'password',
-    ]);
-
-    $user = User::where('email', 'test@example.com')->first();
-
-    $response->assertSessionHasNoErrors()
-        ->assertRedirect(route('dashboard', absolute: false));
-
-    $this->assertAuthenticated();
+test('the registration submit route is disabled', function () {
+    expect(app('router')->has('register.store'))->toBeFalse();
 });
