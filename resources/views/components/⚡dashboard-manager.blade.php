@@ -412,6 +412,72 @@ new class extends Component
         return Booking::where('team_id', $this->team->id)->find($this->selectedBookingId);
     }
 
+    public function getSelectedBookingGoogleSyncProperty()
+    {
+        if (! $this->selectedBooking) {
+            return null;
+        }
+
+        return GoogleIntegration::where('user_id', $this->selectedBooking->user_id)->first();
+    }
+
+    public function getSelectedBookingCalendarStatusProperty(): array
+    {
+        if (! $this->selectedBooking) {
+            return [
+                'tone' => 'neutral',
+                'title' => 'No booking selected',
+                'summary' => 'Select a booking to inspect calendar sync details.',
+                'detail' => null,
+                'connected_account' => null,
+                'checks' => [],
+            ];
+        }
+
+        if (! empty($this->selectedBooking->meet_link)) {
+            return [
+                'tone' => 'success',
+                'title' => 'Google Meet Ready',
+                'summary' => 'This booking already has a saved Google Meet link and should appear on the connected calendar.',
+                'detail' => 'Use the launch button below to open the exact meeting link stored on this booking.',
+                'connected_account' => $this->selectedBookingGoogleSync?->email,
+                'checks' => [
+                    'Meet link saved to the booking record',
+                    'Guest confirmation email can include the saved meeting URL',
+                    'Open the meeting directly from this drawer',
+                ],
+            ];
+        }
+
+        if (! $this->selectedBookingGoogleSync) {
+            return [
+                'tone' => 'warning',
+                'title' => 'Calendar Sync Needs Attention',
+                'summary' => 'This booking is confirmed, but no Google Meet link was saved yet.',
+                'detail' => 'No Google Calendar connection is currently attached to the booking owner for this record, so Book-it could not generate a native Google Calendar event or Meet link.',
+                'connected_account' => null,
+                'checks' => [
+                    'Connect Google Calendar from the Integrations panel',
+                    'Create one test booking after reconnecting',
+                    'Confirm the meeting record stores a Meet link after the retry',
+                ],
+            ];
+        }
+
+        return [
+            'tone' => 'warning',
+            'title' => 'Calendar Sync Needs Attention',
+            'summary' => 'This booking is confirmed, but no Google Meet link was saved yet.',
+            'detail' => 'The booking owner is connected to Google, so this usually means Google Calendar API access, consent, or a temporary Google-side error blocked event creation for this specific booking.',
+            'connected_account' => $this->selectedBookingGoogleSync->email,
+            'checks' => [
+                'Google Calendar API access',
+                'Re-connect Google Calendar if consent or tokens were refreshed',
+                'Check recent booking sync warnings in the logs if the issue repeats',
+            ],
+        ];
+    }
+
     public function getGoogleSyncProperty()
     {
         return GoogleIntegration::where('user_id', auth()->id())->first();
@@ -711,9 +777,9 @@ new class extends Component
                                             </a>
                                         @else
                                             @if($booking->status === 'confirmed' && $this->googleSync)
-                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 text-[11px] font-medium" title="Calendar sync failed — check logs or reconnect Google Calendar">
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 text-[11px] font-medium" title="Open this booking to see detailed calendar sync guidance and next checks.">
                                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                                                    Sync Failed
+                                                    Needs Attention
                                                 </span>
                                             @else
                                                 <span class="text-zinc-400">-</span>
@@ -1085,6 +1151,75 @@ new class extends Component
                             <a href="{{ $this->selectedBooking->meet_link }}" target="_blank" class="w-full py-2 px-3 rounded-lg bg-emerald-600 text-white font-semibold text-center block text-xs hover:bg-emerald-500 transition">
                                 Launch Google Meet Video ↗
                             </a>
+                        </div>
+                    @endif
+                </div>
+
+                <!-- Calendar Sync Status -->
+                <div @class([
+                    'p-4 rounded-xl border space-y-3 text-xs',
+                    'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50' => $this->selectedBookingCalendarStatus['tone'] === 'success',
+                    'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50' => $this->selectedBookingCalendarStatus['tone'] === 'warning',
+                    'bg-zinc-50 border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800' => $this->selectedBookingCalendarStatus['tone'] === 'neutral',
+                ])>
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <span class="text-zinc-500 dark:text-zinc-400 uppercase tracking-wider text-[10px] font-bold">Calendar & Meet Sync</span>
+                            <p @class([
+                                'text-sm font-bold mt-1',
+                                'text-emerald-700 dark:text-emerald-300' => $this->selectedBookingCalendarStatus['tone'] === 'success',
+                                'text-amber-700 dark:text-amber-300' => $this->selectedBookingCalendarStatus['tone'] === 'warning',
+                                'text-zinc-900 dark:text-white' => $this->selectedBookingCalendarStatus['tone'] === 'neutral',
+                            ])>
+                                {{ $this->selectedBookingCalendarStatus['title'] }}
+                            </p>
+                        </div>
+
+                        <span @class([
+                            'inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]',
+                            'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' => $this->selectedBookingCalendarStatus['tone'] === 'success',
+                            'bg-amber-500/15 text-amber-700 dark:text-amber-300' => $this->selectedBookingCalendarStatus['tone'] === 'warning',
+                            'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' => $this->selectedBookingCalendarStatus['tone'] === 'neutral',
+                        ])>
+                            {{ $this->selectedBookingCalendarStatus['tone'] }}
+                        </span>
+                    </div>
+
+                    <p class="text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                        {{ $this->selectedBookingCalendarStatus['summary'] }}
+                    </p>
+
+                    @if(!empty($this->selectedBookingCalendarStatus['detail']))
+                        <p class="text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                            {{ $this->selectedBookingCalendarStatus['detail'] }}
+                        </p>
+                    @endif
+
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div class="rounded-lg border border-zinc-200/80 bg-white/70 dark:bg-zinc-900/60 dark:border-zinc-800 p-3">
+                            <p class="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-bold">Booking Status</p>
+                            <p class="mt-1 text-sm font-semibold text-zinc-900 dark:text-white">{{ ucfirst($this->selectedBooking->status) }}</p>
+                        </div>
+
+                        <div class="rounded-lg border border-zinc-200/80 bg-white/70 dark:bg-zinc-900/60 dark:border-zinc-800 p-3">
+                            <p class="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-bold">Connected Account</p>
+                            <p class="mt-1 text-sm font-semibold text-zinc-900 dark:text-white break-all">
+                                {{ $this->selectedBookingCalendarStatus['connected_account'] ?: 'Not Connected' }}
+                            </p>
+                        </div>
+                    </div>
+
+                    @if(!empty($this->selectedBookingCalendarStatus['checks']))
+                        <div>
+                            <p class="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-bold mb-2">What to check next</p>
+                            <ul class="space-y-2">
+                                @foreach($this->selectedBookingCalendarStatus['checks'] as $check)
+                                    <li class="flex items-start gap-2 text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                                        <span class="mt-0.5 text-amber-500">•</span>
+                                        <span>{{ $check }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
                         </div>
                     @endif
                 </div>
