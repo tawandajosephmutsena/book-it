@@ -208,8 +208,8 @@ new class extends Component
         $datePrefix = $startTime->format('Y-m-d');
         $timePrefix = $startTime->format('H:i');
 
-        // Atomic double-booking lock
-        $conflict = DB::transaction(function () use ($startTime, $datePrefix, $timePrefix) {
+        // Atomic double-booking lock — only DB operations inside the transaction
+        $booking = DB::transaction(function () use ($startTime, $datePrefix, $timePrefix) {
             $existingCount = Booking::where('team_id', $this->team->id)
                 ->where(function ($q) use ($startTime, $datePrefix, $timePrefix) {
                     $q->where('start_time', $startTime)
@@ -221,56 +221,31 @@ new class extends Component
                 ->count();
 
             if ($existingCount > 0) {
-                return true;
+                return null;
             }
 
-            try {
-                $owner = $this->team->owner();
-                $booking = Booking::create([
-                    'team_id' => $this->team->id,
-                    'user_id' => $owner ? $owner->id : $this->team->user_id,
-                    'guest_name' => $this->guest_name,
-                    'guest_email' => $this->guest_email,
-                    'guest_timezone' => $this->guest_timezone,
-                    'start_time' => $startTime,
-                    'end_time' => (clone $startTime)->addHour(),
-                    'lead_data' => [
-                        'company' => $this->guest_company,
-                        'phone' => $this->guest_phone,
-                        'industry' => $this->guest_industry,
-                        'project_brief' => $this->project_brief,
-                        'notes' => '',
-                    ],
-                    'status' => 'confirmed',
-                ]);
+            $owner = $this->team->owner();
 
-                // Dispatch Calendar Sync and Notifications
-                NotificationService::trigger($booking);
-                $booking->refresh();
-
-                $this->confirmedBooking = $booking;
-
-                // Build 1-click calendar links
-                $startUTC = $booking->start_time->format('Ymd\\THis\\Z');
-                $endUTC = $booking->end_time->format('Ymd\\THis\\Z');
-                $title = urlencode('Strategy Session with '.$this->team->name);
-                $details = urlencode('Google Meet: '.($booking->meet_link ?? 'Link in confirmation email')."\n\nGuest: {$this->guest_name}\nCompany: {$this->guest_company}");
-
-                $this->calendarLinks = [
-                    'google' => "https://calendar.google.com/calendar/render?action=TEMPLATE&text={$title}&dates={$startUTC}/{$endUTC}&details={$details}",
-                    'outlook' => "https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject={$title}&startdt={$startUTC}&enddt={$endUTC}&body={$details}",
-                ];
-
-                $this->step = 3;
-            } catch (\Exception $e) {
-                Log::error('Booking submission error: '.$e->getMessage());
-                throw $e;
-            }
-
-            return false;
+            return Booking::create([
+                'team_id' => $this->team->id,
+                'user_id' => $owner ? $owner->id : $this->team->user_id,
+                'guest_name' => $this->guest_name,
+                'guest_email' => $this->guest_email,
+                'guest_timezone' => $this->guest_timezone,
+                'start_time' => $startTime,
+                'end_time' => (clone $startTime)->addHour(),
+                'lead_data' => [
+                    'company' => $this->guest_company,
+                    'phone' => $this->guest_phone,
+                    'industry' => $this->guest_industry,
+                    'project_brief' => $this->project_brief,
+                    'notes' => '',
+                ],
+                'status' => 'confirmed',
+            ]);
         });
 
-        if ($conflict) {
+        if (!$booking) {
             $this->addError('time', 'This time slot was just taken. Please select another slot.');
             $this->step = 1;
             $this->time = null;
@@ -280,6 +255,29 @@ new class extends Component
                 'time' => 'This time slot was just taken. Please select another slot.',
             ]);
         }
+
+        // Dispatch Calendar Sync and Notifications AFTER the transaction commits
+        try {
+            NotificationService::trigger($booking);
+            $booking->refresh();
+        } catch (\Exception $e) {
+            Log::error('Notification dispatch error (booking saved): '.$e->getMessage());
+        }
+
+        $this->confirmedBooking = $booking;
+
+        // Build 1-click calendar links
+        $startUTC = $booking->start_time->format('Ymd\\THis\\Z');
+        $endUTC = $booking->end_time->format('Ymd\\THis\\Z');
+        $title = urlencode('Strategy Session with '.$this->team->name);
+        $details = urlencode('Google Meet: '.($booking->meet_link ?? 'Link in confirmation email')."\n\nGuest: {$this->guest_name}\nCompany: {$this->guest_company}");
+
+        $this->calendarLinks = [
+            'google' => "https://calendar.google.com/calendar/render?action=TEMPLATE&text={$title}&dates={$startUTC}/{$endUTC}&details={$details}",
+            'outlook' => "https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject={$title}&startdt={$startUTC}&enddt={$endUTC}&body={$details}",
+        ];
+
+        $this->step = 3;
     }
 
     public function resetBooking()

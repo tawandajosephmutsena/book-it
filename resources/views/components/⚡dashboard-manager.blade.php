@@ -710,7 +710,14 @@ new class extends Component
                                                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                                             </a>
                                         @else
-                                            <span class="text-zinc-400">-</span>
+                                            @if($booking->status === 'confirmed' && $this->googleSync)
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 text-[11px] font-medium" title="Calendar sync failed — check logs or reconnect Google Calendar">
+                                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                                    Sync Failed
+                                                </span>
+                                            @else
+                                                <span class="text-zinc-400">-</span>
+                                            @endif
                                         @endif
                                     </td>
 

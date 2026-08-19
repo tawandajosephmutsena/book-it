@@ -15,8 +15,12 @@ class NotificationService
     public static function trigger(Booking $booking)
     {
         // 1. Create real Google Calendar Event (which generates a real Meet link)
-        \App\Services\GoogleCalendarService::createEvent($booking);
+        $calendarResult = GoogleCalendarService::createEvent($booking);
         $booking->refresh(); // Refresh to get the generated meet_link
+
+        if (! $calendarResult['success']) {
+            Log::warning("Calendar sync failed for booking {$booking->id}: {$calendarResult['error']}");
+        }
 
         // 2. Send Email Notification
         self::sendEmail($booking);
@@ -82,6 +86,7 @@ class NotificationService
 
         if (empty($recipientPhone)) {
             Log::info("WhatsApp skipped: Guest {$booking->guest_name} did not provide a valid phone number.");
+
             return;
         }
 
